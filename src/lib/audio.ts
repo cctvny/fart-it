@@ -24,6 +24,7 @@ export class GameAudio {
   private master: GainNode | null = null;
   private muted = false;
   private voiceTimer: number | null = null;
+  private announceToken = 0;
 
   get audioContext() {
     if (this.ctx) return this.ctx;
@@ -51,9 +52,14 @@ export class GameAudio {
       window.clearTimeout(this.voiceTimer);
       this.voiceTimer = null;
     }
+    this.announceToken += 1;
     if (typeof window !== "undefined") {
       window.speechSynthesis.cancel();
     }
+  }
+
+  cancelAnnounce() {
+    this.announceToken += 1;
   }
 
   setMuted(next: boolean) {
@@ -96,18 +102,44 @@ export class GameAudio {
     }, waitMs);
   }
 
-  announce(id: ActionId) {
-    if (this.muted) return;
-    this.speak(ACTION_MAP[id].shout);
+  announce(id: ActionId, onDone?: () => void) {
+    this.announceToken += 1;
+    const token = this.announceToken;
+    const finish = () => {
+      if (token !== this.announceToken) return;
+      onDone?.();
+    };
+    if (this.muted) {
+      finish();
+      return;
+    }
+    this.speak(ACTION_MAP[id].shout, {
+      onEnd: finish,
+      fallbackMs: 1800,
+    });
     this.cueHit();
   }
 
   speak(
     text: string,
-    opts: { pitch?: number; rate?: number; onEnd?: () => void } = {},
+    opts: {
+      pitch?: number;
+      rate?: number;
+      onEnd?: () => void;
+      fallbackMs?: number;
+    } = {},
   ) {
-    if (this.muted || typeof window === "undefined") return;
+    if (this.muted || typeof window === "undefined") {
+      opts.onEnd?.();
+      return;
+    }
     window.speechSynthesis.cancel();
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      opts.onEnd?.();
+    };
     const voice = new SpeechSynthesisUtterance(text);
     voice.pitch = opts.pitch ?? 1.45;
     voice.rate = opts.rate ?? 1.12;
@@ -118,8 +150,22 @@ export class GameAudio {
         /kid|child|zira|samantha|google us/i.test(item.name),
       ) ?? voices.find((item) => item.lang.startsWith("en"));
     if (funny) voice.voice = funny;
-    if (opts.onEnd) voice.onend = opts.onEnd;
-    window.speechSynthesis.speak(voice);
+    const fallback = window.setTimeout(
+      finish,
+      opts.fallbackMs ?? Math.max(1000, text.length * 90),
+    );
+    voice.onend = () => {
+      window.clearTimeout(fallback);
+      finish();
+    };
+    voice.onerror = () => {
+      window.clearTimeout(fallback);
+      finish();
+    };
+    window.setTimeout(() => {
+      if (finished) return;
+      window.speechSynthesis.speak(voice);
+    }, 40);
   }
 
   playBeat(windowMs: number) {

@@ -46,6 +46,7 @@ export default function FartItGame() {
   const [name, setName] = useState("");
   const [saved, setSaved] = useState(false);
   const [beatOn, setBeatOn] = useState(false);
+  const [armed, setArmed] = useState(false);
 
   const audioRef = useRef<GameAudio | null>(null);
   const acceptingRef = useRef(false);
@@ -87,10 +88,12 @@ export default function FartItGame() {
     const missed = currentRef.current;
     const level = noiseLevel(scoreRef.current);
     clearRoundTimer();
+    audio().cancelAnnounce();
     acceptingRef.current = false;
     currentRef.current = null;
     setCurrent(null);
     setBeatOn(false);
+    setArmed(false);
     setPhase("over");
     setFlash("bad");
     audio().playMiss(missed, level);
@@ -105,16 +108,24 @@ export default function FartItGame() {
       setCurrent(action);
       setWindowMs(nextWindow);
       setRoundId((id) => id + 1);
-      setBeatOn(true);
+      setBeatOn(false);
+      setArmed(false);
       setFlash(null);
-      audio().announce(action);
-      audio().playBeat(nextWindow);
       clearRoundTimer();
-      roundTimer.current = window.setTimeout(() => {
-        if (!acceptingRef.current) return;
+      audio().announce(action, () => {
         if (phaseRef.current !== "playing") return;
-        endGame();
-      }, nextWindow);
+        if (currentRef.current !== action) return;
+        if (!acceptingRef.current) return;
+        setBeatOn(true);
+        setArmed(true);
+        audio().playBeat(nextWindow);
+        clearRoundTimer();
+        roundTimer.current = window.setTimeout(() => {
+          if (!acceptingRef.current) return;
+          if (phaseRef.current !== "playing") return;
+          endGame();
+        }, nextWindow);
+      });
     },
     [audio, endGame],
   );
@@ -168,6 +179,7 @@ export default function FartItGame() {
       }
 
       acceptingRef.current = false;
+      audio().cancelAnnounce();
       clearRoundTimer();
       const nextScore = scoreRef.current + 1;
       const nextStreak = streakRef.current + 1;
@@ -191,7 +203,7 @@ export default function FartItGame() {
           if (phaseRef.current !== "playing") return;
           launchRound(id, nextScore);
         },
-        spedUp ? 420 : 220,
+        spedUp ? 800 : 650,
       );
     },
     [audio, endGame, launchRound],
@@ -291,7 +303,7 @@ export default function FartItGame() {
         <div className="hub">
           {phase === "playing" && currentDef ? (
             <>
-              <div key={roundId} className="timer" />
+              {armed ? <div key={roundId} className="timer" /> : null}
               <Image src={currentDef.icon} alt="" width={140} height={140} />
               <p>{currentDef.shout}</p>
             </>
@@ -326,9 +338,9 @@ export default function FartItGame() {
         {phase === "title" && (
           <>
             <p className="how">
-              The hub shouts a move. Smash that pad before the beat runs out.
-              Start at 2 seconds. Every 10 hits, it gets quicker. It never goes
-              faster than 1 second.
+              The hub shouts a move. After you hear it, smash that pad. Start at
+              3 seconds. Every 10 hits, it gets quicker. It never goes faster
+              than 1.8 seconds.
             </p>
             <button
               type="button"
@@ -343,7 +355,7 @@ export default function FartItGame() {
           <p className="how live">
             {streak > 0 && streak % SPEED_EVERY === 0
               ? "Faster beat!"
-              : "Match the hub. Four pads. One shot."}
+              : "Wait for the shout, then match the hub."}
           </p>
         )}
         {phase === "over" && (

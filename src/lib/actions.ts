@@ -53,8 +53,8 @@ export const ACTION_MAP = Object.fromEntries(
   ACTIONS.map((action) => [action.id, action]),
 ) as Record<ActionId, ActionDef>;
 
-export const START_WINDOW_MS = 2000;
-export const MIN_WINDOW_MS = 1000;
+export const START_WINDOW_MS = 3000;
+export const MIN_WINDOW_MS = 1800;
 export const SPEED_EVERY = 10;
 export const SPEED_STEP_MS = 200;
 
