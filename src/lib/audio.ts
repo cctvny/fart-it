@@ -26,6 +26,11 @@ export class GameAudio {
   private voiceTimer: number | null = null;
   private announceToken = 0;
   private sampleCache = new Map<string, HTMLAudioElement>();
+  private musicTimer: number | null = null;
+  private musicOn = false;
+  private nextNoteTime = 0;
+  private musicBeatSec = 0.5;
+  private musicBeatIndex = 0;
 
   get audioContext() {
     if (this.ctx) return this.ctx;
@@ -87,6 +92,10 @@ export class GameAudio {
       "/sounds/fart-3.mp3",
       "/sounds/fart-wet.mp3",
       "/sounds/burp-1.mp3",
+      "/sounds/sneeze-1.mp3",
+      "/sounds/sneeze-2.mp3",
+      "/sounds/sneeze-3.mp3",
+      "/sounds/vomit-1.mp3",
     ]) {
       const audio = new Audio(src);
       audio.preload = "auto";
@@ -119,7 +128,7 @@ export class GameAudio {
     const exaggerate = Boolean(opts.exaggerate);
     if (id === "fart") this.playFart(level, exaggerate);
     if (id === "burp") this.playBurp(level, exaggerate);
-    if (id === "pick") this.playPick(exaggerate);
+    if (id === "vomit") this.playVomit(exaggerate);
     if (id === "sneeze") this.playSneeze(level, exaggerate);
   }
 
@@ -207,18 +216,42 @@ export class GameAudio {
     }, 40);
   }
 
-  playBeat(windowMs: number, beatMs: number) {
-    if (this.muted) return;
-    const ctx = this.audioContext;
-    const start = ctx.currentTime + 0.02;
-    const step = Math.max(0.16, beatMs / 1000);
-    const duration = windowMs / 1000;
-    let i = 0;
-    for (let t = 0; t < duration - 0.04; t += step) {
-      this.kick(start + t, i % 2 === 0 ? 0.72 : 0.34);
-      this.tick(start + t + step * 0.5, i % 4 === 3 ? 0.28 : 0.16);
-      i += 1;
+  startMusic(beatMs: number) {
+    this.stopMusic();
+    this.musicOn = true;
+    this.musicBeatSec = Math.max(0.16, beatMs / 1000);
+    this.musicBeatIndex = 0;
+    this.nextNoteTime = this.audioContext.currentTime + 0.04;
+    this.scheduleMusic();
+  }
+
+  setMusicTempo(beatMs: number) {
+    this.musicBeatSec = Math.max(0.16, beatMs / 1000);
+  }
+
+  stopMusic() {
+    this.musicOn = false;
+    if (this.musicTimer) {
+      window.clearTimeout(this.musicTimer);
+      this.musicTimer = null;
     }
+  }
+
+  private scheduleMusic() {
+    if (!this.musicOn) return;
+    const ctx = this.audioContext;
+    const horizon = ctx.currentTime + 0.28;
+    while (this.nextNoteTime < horizon) {
+      const i = this.musicBeatIndex;
+      this.kick(this.nextNoteTime, i % 2 === 0 ? 0.72 : 0.34);
+      this.tick(
+        this.nextNoteTime + this.musicBeatSec * 0.5,
+        i % 4 === 3 ? 0.28 : 0.16,
+      );
+      this.nextNoteTime += this.musicBeatSec;
+      this.musicBeatIndex += 1;
+    }
+    this.musicTimer = window.setTimeout(() => this.scheduleMusic(), 40);
   }
 
   playFaster() {
@@ -246,6 +279,7 @@ export class GameAudio {
       return Math.round((0.38 + level * 0.26) * stretch * 1000);
     if (id === "sneeze")
       return Math.round((0.7 + Math.min(level, 3) * 0.12) * stretch * 1000);
+    if (id === "vomit") return 1400;
     return 1100;
   }
 
@@ -294,36 +328,17 @@ export class GameAudio {
     src.stop(time + 0.06);
   }
 
-  private playPick(exaggerate: boolean) {
-    const ctx = this.audioContext;
-    const t = ctx.currentTime;
-    const stretch = exaggerate ? 2.1 : 1;
-    const loud = exaggerate ? 1.35 : 1;
-    const seconds = 0.22 * stretch;
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuffer(ctx, seconds);
-    const filter = ctx.createBiquadFilter();
-    filter.type = "bandpass";
-    filter.frequency.setValueAtTime(1400, t);
-    filter.frequency.exponentialRampToValueAtTime(420, t + seconds);
-    filter.Q.value = 3.4;
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.55 * loud, t + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + seconds);
-    src.connect(filter).connect(gain).connect(this.dest());
-    src.start(t);
-    src.stop(t + seconds + 0.02);
-    const pop = ctx.createOscillator();
-    const popGain = ctx.createGain();
-    pop.type = "sine";
-    pop.frequency.setValueAtTime(220, t);
-    pop.frequency.exponentialRampToValueAtTime(70, t + 0.09);
-    popGain.gain.setValueAtTime(0.16 * loud, t);
-    popGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.1);
-    pop.connect(popGain).connect(this.dest());
-    pop.start(t);
-    pop.stop(t + 0.12);
+  private playVomit(exaggerate: boolean) {
+    this.playSample("/sounds/vomit-1.mp3", {
+      rate: exaggerate ? 0.88 : 1,
+      volume: 1,
+    });
+    if (exaggerate) {
+      this.playSample("/sounds/vomit-1.mp3", {
+        delayMs: 620,
+        rate: 0.8,
+      });
+    }
   }
 
   private playFart(level: number, exaggerate: boolean) {
@@ -364,56 +379,22 @@ export class GameAudio {
   }
 
   private playSneeze(level: number, exaggerate: boolean) {
-    const ctx = this.audioContext;
-    const t = ctx.currentTime;
-    const stretch = exaggerate ? 2.1 : 1;
-    const loud = exaggerate ? 1.4 : 1;
-    const extra = Math.min(3, level) * 0.05;
-
-    const inhale = ctx.createOscillator();
-    const inhaleGain = ctx.createGain();
-    inhale.type = "triangle";
-    inhale.frequency.setValueAtTime(exaggerate ? 260 : 380, t);
-    inhale.frequency.exponentialRampToValueAtTime(
-      exaggerate ? 720 : 620,
-      t + 0.16 * stretch,
-    );
-    inhaleGain.gain.setValueAtTime(0.0001, t);
-    inhaleGain.gain.exponentialRampToValueAtTime(0.14 * loud, t + 0.05);
-    inhaleGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.18 * stretch);
-    inhale.connect(inhaleGain).connect(this.dest());
-    inhale.start(t);
-    inhale.stop(t + 0.2 * stretch);
-
-    const chooAt = t + 0.18 * stretch;
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuffer(ctx, (0.32 + extra) * stretch);
-    const filter = ctx.createBiquadFilter();
-    filter.type = "bandpass";
-    filter.frequency.setValueAtTime(exaggerate ? 900 : 1400, chooAt);
-    filter.frequency.exponentialRampToValueAtTime(
-      320,
-      chooAt + (0.28 + extra) * stretch,
-    );
-    filter.Q.value = exaggerate ? 0.7 : 1.2;
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0.0001, chooAt);
-    gain.gain.exponentialRampToValueAtTime(0.95 * loud, chooAt + 0.02);
-    gain.gain.exponentialRampToValueAtTime(
-      0.0001,
-      chooAt + (0.3 + extra) * stretch,
-    );
-    const boom = ctx.createOscillator();
-    boom.type = "sine";
-    boom.frequency.setValueAtTime(exaggerate ? 120 : 180, chooAt);
-    boom.frequency.exponentialRampToValueAtTime(55, chooAt + 0.22 * stretch);
-    const boomGain = ctx.createGain();
-    boomGain.gain.setValueAtTime(0.24 * loud, chooAt);
-    boomGain.gain.exponentialRampToValueAtTime(0.0001, chooAt + 0.28 * stretch);
-    src.connect(filter).connect(gain).connect(this.dest());
-    boom.connect(boomGain).connect(this.dest());
-    src.start(chooAt);
-    boom.start(chooAt);
-    boom.stop(chooAt + 0.32 * stretch);
+    const sneezes = [
+      "/sounds/sneeze-1.mp3",
+      "/sounds/sneeze-2.mp3",
+      "/sounds/sneeze-3.mp3",
+    ];
+    const style = Math.min(2, Math.max(0, Math.floor(level)));
+    const first = exaggerate ? sneezes[2] : sneezes[style];
+    this.playSample(first, {
+      rate: exaggerate ? 0.9 : 1,
+      volume: 1,
+    });
+    if (exaggerate) {
+      this.playSample(sneezes[0], {
+        delayMs: 900,
+        rate: 0.86,
+      });
+    }
   }
 }

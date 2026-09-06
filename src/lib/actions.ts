@@ -1,4 +1,4 @@
-export type ActionId = "fart" | "burp" | "pick" | "sneeze";
+export type ActionId = "fart" | "burp" | "vomit" | "sneeze";
 
 export type ActionDef = {
   id: ActionId;
@@ -21,10 +21,10 @@ export const ACTIONS: ActionDef[] = [
     position: "top",
   },
   {
-    id: "pick",
-    label: "Pick It",
-    shout: "Pick it!",
-    icon: "/pick-it-icon.png",
+    id: "vomit",
+    label: "Vomit It",
+    shout: "Vomit it!",
+    icon: "/vomit-it-icon.png",
     hint: "D / Right",
     key: "right",
     position: "right",

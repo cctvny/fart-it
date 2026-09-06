@@ -84,6 +84,7 @@ export default function FartItGame() {
     return () => {
       clearRoundTimer();
       if (pressTimer.current) window.clearTimeout(pressTimer.current);
+      audioRef.current?.stopMusic();
     };
   }, []);
 
@@ -92,6 +93,7 @@ export default function FartItGame() {
     const level = noiseLevel(scoreRef.current);
     clearRoundTimer();
     audio().cancelAnnounce();
+    audio().stopMusic();
     acceptingRef.current = false;
     currentRef.current = null;
     setCurrent(null);
@@ -111,17 +113,15 @@ export default function FartItGame() {
       setCurrent(action);
       setBeatMs(nextBeat);
       setRoundId((id) => id + 1);
-      setBeatOn(false);
       setArmed(false);
       setFlash(null);
       clearRoundTimer();
+      audio().setMusicTempo(nextBeat);
       audio().announce(action, () => {
         if (phaseRef.current !== "playing") return;
         if (currentRef.current !== action) return;
         if (!acceptingRef.current) return;
-        setBeatOn(true);
         setArmed(true);
-        audio().playBeat(PRESS_WINDOW_MS, nextBeat);
         clearRoundTimer();
         roundTimer.current = window.setTimeout(() => {
           if (!acceptingRef.current) return;
@@ -144,8 +144,10 @@ export default function FartItGame() {
     setSaved(false);
     setFlash(null);
     setBeatMs(beatIntervalMs(0));
+    setBeatOn(true);
     setPhase("playing");
     phaseRef.current = "playing";
+    audio().startMusic(beatIntervalMs(0));
     launchRound(null, 0);
   }, [audio, launchRound]);
 
@@ -156,8 +158,10 @@ export default function FartItGame() {
     setFlash(null);
     setStreak(0);
     streakRef.current = 0;
+    setBeatOn(true);
     setPhase("playing");
     phaseRef.current = "playing";
+    audio().startMusic(beatIntervalMs(scoreRef.current));
     launchRound(null, scoreRef.current);
   }, [audio, launchRound]);
 
@@ -201,6 +205,8 @@ export default function FartItGame() {
         musicLevel(nextScore) > musicLevel(nextScore - 1);
       if (spedUp) {
         setFlash("faster");
+        setBeatMs(beatIntervalMs(nextScore));
+        audio().setMusicTempo(beatIntervalMs(nextScore));
         audio().playFaster();
       }
 
@@ -231,8 +237,8 @@ export default function FartItGame() {
       const map: Record<string, ActionId> = {
         w: "fart",
         arrowup: "fart",
-        d: "pick",
-        arrowright: "pick",
+        d: "vomit",
+        arrowright: "vomit",
         s: "sneeze",
         arrowdown: "sneeze",
         a: "burp",
