@@ -168,7 +168,10 @@ export default function FartItGame() {
       if (pressTimer.current) window.clearTimeout(pressTimer.current);
       pressTimer.current = window.setTimeout(() => setPressed(null), 160);
 
-      const freePlay = phaseRef.current !== "playing" || !acceptingRef.current;
+      const freePlay = phaseRef.current !== "playing";
+      if (phaseRef.current === "playing" && !acceptingRef.current) {
+        return;
+      }
       if (freePlay) {
         audio().playAction(id, {
           level: Math.floor(Math.random() * 6),

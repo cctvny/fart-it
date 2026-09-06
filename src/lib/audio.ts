@@ -14,6 +14,52 @@ function noiseBuffer(ctx: AudioContext, seconds: number) {
   return buffer;
 }
 
+function fartBuffer(ctx: AudioContext, seconds: number, flutterHz: number) {
+  const length = Math.max(1, Math.floor(ctx.sampleRate * seconds));
+  const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  let brown = 0;
+  for (let i = 0; i < length; i += 1) {
+    brown += (Math.random() * 2 - 1) * 0.03;
+    brown = Math.max(-1, Math.min(1, brown * 0.996));
+    const t = i / ctx.sampleRate;
+    const env = Math.pow(1 - i / length, 0.28);
+    const flutter =
+      0.42 + 0.58 * Math.abs(Math.sin(t * flutterHz * Math.PI * 2));
+    const grit = Math.random() < 0.07 ? (Math.random() * 2 - 1) * 0.55 : 0;
+    data[i] = (brown * 5.2 + grit) * flutter * env;
+  }
+  return buffer;
+}
+
+function burpBuffer(
+  ctx: AudioContext,
+  seconds: number,
+  startHz: number,
+  peakHz: number,
+  endHz: number,
+) {
+  const length = Math.max(1, Math.floor(ctx.sampleRate * seconds));
+  const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  let phase = 0;
+  for (let i = 0; i < length; i += 1) {
+    const t = i / length;
+    const hz =
+      t < 0.22
+        ? startHz + (peakHz - startHz) * (t / 0.22)
+        : peakHz * Math.pow(endHz / peakHz, (t - 0.22) / 0.78);
+    phase += hz / ctx.sampleRate;
+    const cycle = phase % 1;
+    const pulse = cycle < 0.14 ? Math.exp(-cycle * 26) : 0;
+    const body = Math.sin(phase * 2 * Math.PI) * 0.22;
+    const air = (Math.random() * 2 - 1) * 0.08 * (1 - t);
+    const env = Math.pow(1 - t, 0.32);
+    data[i] = (pulse * 2.1 + body + air) * env;
+  }
+  return buffer;
+}
+
 type PlayOpts = {
   level?: number;
   exaggerate?: boolean;
@@ -105,8 +151,10 @@ export class GameAudio {
   announce(id: ActionId, onDone?: () => void) {
     this.announceToken += 1;
     const token = this.announceToken;
+    let started = false;
     const finish = () => {
-      if (token !== this.announceToken) return;
+      if (token !== this.announceToken || started) return;
+      started = true;
       onDone?.();
     };
     if (this.muted) {
@@ -115,7 +163,7 @@ export class GameAudio {
     }
     this.speak(ACTION_MAP[id].shout, {
       onEnd: finish,
-      fallbackMs: 1800,
+      fallbackMs: 1600,
     });
     this.cueHit();
   }
@@ -133,7 +181,9 @@ export class GameAudio {
       opts.onEnd?.();
       return;
     }
-    window.speechSynthesis.cancel();
+    if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+      window.speechSynthesis.cancel();
+    }
     let finished = false;
     const finish = () => {
       if (finished) return;
@@ -256,75 +306,74 @@ export class GameAudio {
   }
 
   private playPick(exaggerate: boolean) {
-    this.speak(exaggerate ? "Piiiick iiiit!" : "pick it", {
-      pitch: exaggerate ? 0.7 : 1.45,
-      rate: exaggerate ? 0.62 : 1.12,
-    });
+    const ctx = this.audioContext;
+    const t = ctx.currentTime;
+    const stretch = exaggerate ? 2.1 : 1;
+    const loud = exaggerate ? 1.35 : 1;
+    const seconds = 0.22 * stretch;
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuffer(ctx, seconds);
+    const filter = ctx.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.setValueAtTime(1400, t);
+    filter.frequency.exponentialRampToValueAtTime(420, t + seconds);
+    filter.Q.value = 3.4;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.55 * loud, t + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + seconds);
+    src.connect(filter).connect(gain).connect(this.dest());
+    src.start(t);
+    src.stop(t + seconds + 0.02);
+    const pop = ctx.createOscillator();
+    const popGain = ctx.createGain();
+    pop.type = "sine";
+    pop.frequency.setValueAtTime(220, t);
+    pop.frequency.exponentialRampToValueAtTime(70, t + 0.09);
+    popGain.gain.setValueAtTime(0.16 * loud, t);
+    popGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.1);
+    pop.connect(popGain).connect(this.dest());
+    pop.start(t);
+    pop.stop(t + 0.12);
   }
 
   private playFart(level: number, exaggerate: boolean) {
     const ctx = this.audioContext;
     const t = ctx.currentTime;
     const style = Math.min(5, Math.max(0, Math.floor(level)));
-    const stretch = exaggerate ? 2.35 : 1;
-    const loud = exaggerate ? 1.4 : 1;
-    const seconds = (0.48 + style * 0.34) * stretch;
+    const stretch = exaggerate ? 2.4 : 1;
+    const loud = exaggerate ? 1.45 : 1;
+    const seconds = (0.42 + style * 0.28) * stretch;
+    const flutter = [11, 14, 22, 9, 18, 7][style];
+    const startHz = [260, 220, 300, 180, 340, 150][style];
+    const endHz = [70, 58, 90, 42, 64, 34][style];
 
     const src = ctx.createBufferSource();
-    src.buffer = noiseBuffer(ctx, seconds + 0.08);
+    src.buffer = fartBuffer(ctx, seconds, flutter);
     const filter = ctx.createBiquadFilter();
     filter.type = "lowpass";
-    filter.Q.value = 4 + style + (exaggerate ? 4 : 0);
-
-    const startHz = [420, 360, 520, 280, 640, 210][style];
-    const endHz = [90, 70, 110, 48, 80, 36][style];
+    filter.Q.value = 2.6 + style * 0.35;
     filter.frequency.setValueAtTime(startHz, t);
-    filter.frequency.exponentialRampToValueAtTime(endHz, t + seconds);
-
+    if (style === 4) {
+      filter.frequency.exponentialRampToValueAtTime(380, t + seconds * 0.35);
+      filter.frequency.exponentialRampToValueAtTime(endHz, t + seconds);
+    } else {
+      filter.frequency.exponentialRampToValueAtTime(endHz, t + seconds);
+    }
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.9 * loud, t + 0.04);
+    gain.gain.exponentialRampToValueAtTime(0.95 * loud, t + 0.03);
     if (style >= 2) {
-      const mid = t + seconds * 0.45;
-      gain.gain.exponentialRampToValueAtTime(0.45 * loud, mid);
-      gain.gain.exponentialRampToValueAtTime(0.95 * loud, mid + 0.08);
+      gain.gain.exponentialRampToValueAtTime(0.4 * loud, t + seconds * 0.45);
+      gain.gain.exponentialRampToValueAtTime(0.9 * loud, t + seconds * 0.55);
     }
     gain.gain.exponentialRampToValueAtTime(0.0001, t + seconds);
-
-    const osc = ctx.createOscillator();
-    osc.type = style >= 4 ? "sawtooth" : style >= 2 ? "triangle" : "sine";
-    const bassStart = [88, 72, 110, 58, 140, 46][style];
-    osc.frequency.setValueAtTime(bassStart, t);
-    if (style === 4) {
-      osc.frequency.exponentialRampToValueAtTime(180, t + seconds * 0.4);
-      osc.frequency.exponentialRampToValueAtTime(36, t + seconds);
-    } else if (style === 2) {
-      osc.frequency.setValueAtTime(bassStart, t);
-      osc.frequency.exponentialRampToValueAtTime(bassStart * 0.7, t + seconds);
-    } else {
-      osc.frequency.exponentialRampToValueAtTime(
-        Math.max(28, bassStart * 0.42),
-        t + seconds,
-      );
-    }
-    const oscGain = ctx.createGain();
-    oscGain.gain.setValueAtTime(0.18 * loud, t);
-    oscGain.gain.exponentialRampToValueAtTime(0.0001, t + seconds);
-
     src.connect(filter).connect(gain).connect(this.dest());
-    osc.connect(oscGain).connect(this.dest());
     src.start(t);
-    osc.start(t);
-    osc.stop(t + seconds + 0.02);
+    src.stop(t + seconds + 0.02);
 
-    if (style >= 1) {
-      this.bubblePops(t + 0.12, 2 + style, loud);
-    }
-    if (style >= 3) {
-      this.sputter(t + seconds * 0.55, 0.22 * stretch, loud);
-    }
-    if (exaggerate) {
-      this.sputter(t + seconds * 0.72, 0.28, loud);
+    if (style >= 3 || exaggerate) {
+      this.sputter(t + seconds * 0.58, 0.18 * stretch, loud);
     }
   }
 
@@ -332,47 +381,36 @@ export class GameAudio {
     const ctx = this.audioContext;
     const t = ctx.currentTime;
     const style = Math.min(5, Math.max(0, Math.floor(level)));
-    const stretch = exaggerate ? 2.2 : 1;
-    const loud = exaggerate ? 1.35 : 1;
+    const stretch = exaggerate ? 2.15 : 1;
+    const loud = exaggerate ? 1.4 : 1;
     const hits = style >= 3 ? 2 : 1;
-    const hitLen = (0.34 + style * 0.16) * stretch;
+    const hitLen = (0.38 + style * 0.12) * stretch;
+    const starts = [108, 96, 118, 88, 78, 132];
+    const peaks = [148, 130, 170, 120, 108, 188];
+    const ends = [48, 42, 52, 38, 34, 44];
 
     for (let hit = 0; hit < hits; hit += 1) {
-      const at = t + hit * (hitLen * 0.62);
-      const osc = ctx.createOscillator();
-      const osc2 = ctx.createOscillator();
+      const at = t + hit * (hitLen * 0.7);
+      const src = ctx.createBufferSource();
+      src.buffer = burpBuffer(
+        ctx,
+        hitLen,
+        starts[style] * (hit === 1 ? 0.86 : 1),
+        peaks[style] * (hit === 1 ? 0.84 : 1),
+        ends[style],
+      );
+      const filter = ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(720, at);
+      filter.frequency.exponentialRampToValueAtTime(180, at + hitLen);
+      filter.Q.value = 1.1;
       const gain = ctx.createGain();
-      osc.type = style >= 4 ? "triangle" : "sawtooth";
-      osc2.type = "sine";
-      const start =
-        [150, 128, 168, 118, 96, 188][style] * (hit === 1 ? 0.82 : 1);
-      osc.frequency.setValueAtTime(start, at);
-      osc.frequency.exponentialRampToValueAtTime(start * 0.36, at + hitLen);
-      osc2.frequency.setValueAtTime(start * 0.62, at);
-      osc2.frequency.exponentialRampToValueAtTime(start * 0.22, at + hitLen);
-      if (style === 4) {
-        osc.frequency.setValueAtTime(start, at);
-        osc.frequency.exponentialRampToValueAtTime(start * 1.4, at + 0.08);
-        osc.frequency.exponentialRampToValueAtTime(start * 0.3, at + hitLen);
-      }
       gain.gain.setValueAtTime(0.0001, at);
-      gain.gain.exponentialRampToValueAtTime(0.3 * loud, at + 0.03);
-      gain.gain.setValueAtTime(0.22 * loud, at + hitLen * 0.35);
+      gain.gain.exponentialRampToValueAtTime(0.85 * loud, at + 0.025);
       gain.gain.exponentialRampToValueAtTime(0.0001, at + hitLen);
-      osc.connect(gain);
-      osc2.connect(gain);
-      gain.connect(this.dest());
-      osc.start(at);
-      osc2.start(at);
-      osc.stop(at + hitLen + 0.02);
-      osc2.stop(at + hitLen + 0.02);
-    }
-
-    if (style >= 2) {
-      this.gurgle(t + 0.08, hitLen * hits * 0.7, loud);
-    }
-    if (exaggerate) {
-      this.gurgle(t + hitLen * 0.4, hitLen, loud * 0.8);
+      src.connect(filter).connect(gain).connect(this.dest());
+      src.start(at);
+      src.stop(at + hitLen + 0.02);
     }
   }
 
@@ -430,23 +468,6 @@ export class GameAudio {
     boom.stop(chooAt + 0.32 * stretch);
   }
 
-  private bubblePops(start: number, count: number, loud: number) {
-    const ctx = this.audioContext;
-    for (let i = 0; i < count; i += 1) {
-      const at = start + i * 0.09;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(240 + i * 40, at);
-      osc.frequency.exponentialRampToValueAtTime(90, at + 0.07);
-      gain.gain.setValueAtTime(0.08 * loud, at);
-      gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.08);
-      osc.connect(gain).connect(this.dest());
-      osc.start(at);
-      osc.stop(at + 0.09);
-    }
-  }
-
   private sputter(start: number, length: number, loud: number) {
     const ctx = this.audioContext;
     const src = ctx.createBufferSource();
@@ -461,27 +482,5 @@ export class GameAudio {
     src.connect(filter).connect(gain).connect(this.dest());
     src.start(start);
     src.stop(start + length + 0.02);
-  }
-
-  private gurgle(start: number, length: number, loud: number) {
-    const ctx = this.audioContext;
-    const osc = ctx.createOscillator();
-    const lfo = ctx.createOscillator();
-    const lfoGain = ctx.createGain();
-    const gain = ctx.createGain();
-    osc.type = "sine";
-    lfo.type = "sine";
-    osc.frequency.setValueAtTime(70, start);
-    lfo.frequency.value = 12;
-    lfoGain.gain.value = 18;
-    lfo.connect(lfoGain).connect(osc.frequency);
-    gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(0.12 * loud, start + 0.04);
-    gain.gain.exponentialRampToValueAtTime(0.0001, start + length);
-    osc.connect(gain).connect(this.dest());
-    osc.start(start);
-    lfo.start(start);
-    osc.stop(start + length + 0.02);
-    lfo.stop(start + length + 0.02);
   }
 }
