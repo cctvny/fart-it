@@ -235,7 +235,7 @@ input {
 }
 
 .toy.beating .arm {
-  animation: pulse var(--window) linear infinite;
+  animation: pulse var(--beat, 500ms) linear infinite;
 }
 
 .hub {

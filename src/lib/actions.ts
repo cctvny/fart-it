@@ -53,14 +53,21 @@ export const ACTION_MAP = Object.fromEntries(
   ACTIONS.map((action) => [action.id, action]),
 ) as Record<ActionId, ActionDef>;
 
-export const START_WINDOW_MS = 3000;
-export const MIN_WINDOW_MS = 1800;
+export const PRESS_WINDOW_MS = 2000;
 export const SPEED_EVERY = 10;
-export const SPEED_STEP_MS = 200;
+export const MAX_MUSIC_LEVEL = 5;
 
-export function windowForCorrect(correctCount: number) {
-  const steps = Math.floor(correctCount / SPEED_EVERY);
-  return Math.max(MIN_WINDOW_MS, START_WINDOW_MS - steps * SPEED_STEP_MS);
+export function musicLevel(correctCount: number) {
+  return Math.min(MAX_MUSIC_LEVEL, Math.floor(correctCount / SPEED_EVERY));
+}
+
+export function beatIntervalMs(correctCount: number) {
+  const level = musicLevel(correctCount);
+  return Math.max(180, 500 - level * 64);
+}
+
+export function beatLabel(correctCount: number) {
+  return `${musicLevel(correctCount) + 1}x`;
 }
 
 export function nextAction(previous: ActionId | null): ActionId {

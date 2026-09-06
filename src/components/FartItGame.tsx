@@ -11,10 +11,12 @@ import Image from "next/image";
 import {
   ACTIONS,
   ACTION_MAP,
+  PRESS_WINDOW_MS,
   SPEED_EVERY,
-  START_WINDOW_MS,
+  beatIntervalMs,
+  beatLabel,
+  musicLevel,
   nextAction,
-  windowForCorrect,
   type ActionId,
 } from "@/lib/actions";
 import { GameAudio, noiseLevel } from "@/lib/audio";
@@ -33,7 +35,8 @@ export default function FartItGame() {
   const [score, setScore] = useState(0);
   const [streak, setStreak] = useState(0);
   const [current, setCurrent] = useState<ActionId | null>(null);
-  const [windowMs, setWindowMs] = useState(START_WINDOW_MS);
+  const [windowMs] = useState(PRESS_WINDOW_MS);
+  const [beatMs, setBeatMs] = useState(beatIntervalMs(0));
   const [roundId, setRoundId] = useState(0);
   const [pressed, setPressed] = useState<ActionId | null>(null);
   const [flash, setFlash] = useState<"good" | "bad" | "faster" | null>(null);
@@ -102,11 +105,11 @@ export default function FartItGame() {
   const launchRound = useCallback(
     (previous: ActionId | null, correctSoFar: number) => {
       const action = nextAction(previous);
-      const nextWindow = windowForCorrect(correctSoFar);
+      const nextBeat = beatIntervalMs(correctSoFar);
       currentRef.current = action;
       acceptingRef.current = true;
       setCurrent(action);
-      setWindowMs(nextWindow);
+      setBeatMs(nextBeat);
       setRoundId((id) => id + 1);
       setBeatOn(false);
       setArmed(false);
@@ -118,13 +121,13 @@ export default function FartItGame() {
         if (!acceptingRef.current) return;
         setBeatOn(true);
         setArmed(true);
-        audio().playBeat(nextWindow);
+        audio().playBeat(PRESS_WINDOW_MS, nextBeat);
         clearRoundTimer();
         roundTimer.current = window.setTimeout(() => {
           if (!acceptingRef.current) return;
           if (phaseRef.current !== "playing") return;
           endGame();
-        }, nextWindow);
+        }, PRESS_WINDOW_MS);
       });
     },
     [audio, endGame],
@@ -140,7 +143,7 @@ export default function FartItGame() {
     setStreak(0);
     setSaved(false);
     setFlash(null);
-    setWindowMs(START_WINDOW_MS);
+    setBeatMs(beatIntervalMs(0));
     setPhase("playing");
     phaseRef.current = "playing";
     launchRound(null, 0);
@@ -192,7 +195,7 @@ export default function FartItGame() {
 
       const spedUp =
         nextScore % SPEED_EVERY === 0 &&
-        windowForCorrect(nextScore) < windowForCorrect(nextScore - 1);
+        musicLevel(nextScore) > musicLevel(nextScore - 1);
       if (spedUp) {
         setFlash("faster");
         audio().playFaster();
@@ -286,7 +289,7 @@ export default function FartItGame() {
         </div>
         <div className="meter">
           <span>Beat</span>
-          <strong>{(windowMs / 1000).toFixed(1)}s</strong>
+          <strong>{beatLabel(score)}</strong>
         </div>
         <div className="meter">
           <span>Best</span>
@@ -296,7 +299,10 @@ export default function FartItGame() {
 
       <div
         className={`toy ${beatOn && phase === "playing" ? "beating" : ""}`}
-        style={{ ["--window" as string]: `${windowMs}ms` }}
+        style={{
+          ["--window" as string]: `${windowMs}ms`,
+          ["--beat" as string]: `${beatMs}ms`,
+        }}
       >
         <div className="arm arm-x" />
         <div className="arm arm-y" />
@@ -338,9 +344,9 @@ export default function FartItGame() {
         {phase === "title" && (
           <>
             <p className="how">
-              The hub shouts a move. After you hear it, smash that pad. Start at
-              3 seconds. Every 10 hits, it gets quicker. It never goes faster
-              than 1.8 seconds.
+              The hub shouts a move. After you hear it, you always have 2
+              seconds. Every 10 hits the music gets faster. The time to press
+              stays the same.
             </p>
             <button
               type="button"
@@ -354,7 +360,7 @@ export default function FartItGame() {
         {phase === "playing" && (
           <p className="how live">
             {streak > 0 && streak % SPEED_EVERY === 0
-              ? "Faster beat!"
+              ? "Faster music!"
               : "Wait for the shout, then match the hub."}
           </p>
         )}

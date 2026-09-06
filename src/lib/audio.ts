@@ -168,14 +168,17 @@ export class GameAudio {
     }, 40);
   }
 
-  playBeat(windowMs: number) {
+  playBeat(windowMs: number, beatMs: number) {
     if (this.muted) return;
     const ctx = this.audioContext;
     const start = ctx.currentTime + 0.02;
-    const step = windowMs / 1000 / 4;
-    for (let i = 0; i < 4; i += 1) {
-      this.kick(start + i * step, i % 2 === 0 ? 0.7 : 0.32);
-      this.tick(start + i * step + step * 0.5, i === 3 ? 0.28 : 0.18);
+    const step = Math.max(0.16, beatMs / 1000);
+    const duration = windowMs / 1000;
+    let i = 0;
+    for (let t = 0; t < duration - 0.04; t += step) {
+      this.kick(start + t, i % 2 === 0 ? 0.72 : 0.34);
+      this.tick(start + t + step * 0.5, i % 4 === 3 ? 0.28 : 0.16);
+      i += 1;
     }
   }
 
