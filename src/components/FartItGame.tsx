@@ -17,7 +17,7 @@ import {
   windowForCorrect,
   type ActionId,
 } from "@/lib/actions";
-import { GameAudio } from "@/lib/audio";
+import { GameAudio, noiseLevel } from "@/lib/audio";
 import {
   getServerScores,
   isHighScore,
@@ -84,6 +84,8 @@ export default function FartItGame() {
   }, []);
 
   const endGame = useCallback(() => {
+    const missed = currentRef.current;
+    const level = noiseLevel(scoreRef.current);
     clearRoundTimer();
     acceptingRef.current = false;
     currentRef.current = null;
@@ -91,7 +93,7 @@ export default function FartItGame() {
     setBeatOn(false);
     setPhase("over");
     setFlash("bad");
-    audio().playFail();
+    audio().playMiss(missed, level);
   }, [audio]);
 
   const launchRound = useCallback(
@@ -119,6 +121,7 @@ export default function FartItGame() {
 
   const startGame = useCallback(async () => {
     await audio().unlock();
+    audio().cancelMissLine();
     clearRoundTimer();
     scoreRef.current = 0;
     streakRef.current = 0;
@@ -134,6 +137,7 @@ export default function FartItGame() {
 
   const continueGame = useCallback(async () => {
     await audio().unlock();
+    audio().cancelMissLine();
     setSaved(false);
     setFlash(null);
     setStreak(0);
@@ -146,12 +150,17 @@ export default function FartItGame() {
   const handlePad = useCallback(
     async (id: ActionId) => {
       await audio().unlock();
-      audio().playAction(id);
       setPressed(id);
       if (pressTimer.current) window.clearTimeout(pressTimer.current);
       pressTimer.current = window.setTimeout(() => setPressed(null), 160);
 
-      if (phaseRef.current !== "playing" || !acceptingRef.current) return;
+      const freePlay = phaseRef.current !== "playing" || !acceptingRef.current;
+      if (freePlay) {
+        audio().playAction(id, {
+          level: Math.floor(Math.random() * 6),
+        });
+        return;
+      }
 
       if (id !== currentRef.current) {
         endGame();
@@ -164,6 +173,7 @@ export default function FartItGame() {
       const nextStreak = streakRef.current + 1;
       scoreRef.current = nextScore;
       streakRef.current = nextStreak;
+      audio().playAction(id, { level: noiseLevel(nextScore) });
       setScore(nextScore);
       setStreak(nextStreak);
       setFlash("good");
