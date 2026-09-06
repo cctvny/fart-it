@@ -14,52 +14,6 @@ function noiseBuffer(ctx: AudioContext, seconds: number) {
   return buffer;
 }
 
-function fartBuffer(ctx: AudioContext, seconds: number, flutterHz: number) {
-  const length = Math.max(1, Math.floor(ctx.sampleRate * seconds));
-  const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
-  const data = buffer.getChannelData(0);
-  let brown = 0;
-  for (let i = 0; i < length; i += 1) {
-    brown += (Math.random() * 2 - 1) * 0.03;
-    brown = Math.max(-1, Math.min(1, brown * 0.996));
-    const t = i / ctx.sampleRate;
-    const env = Math.pow(1 - i / length, 0.28);
-    const flutter =
-      0.42 + 0.58 * Math.abs(Math.sin(t * flutterHz * Math.PI * 2));
-    const grit = Math.random() < 0.07 ? (Math.random() * 2 - 1) * 0.55 : 0;
-    data[i] = (brown * 5.2 + grit) * flutter * env;
-  }
-  return buffer;
-}
-
-function burpBuffer(
-  ctx: AudioContext,
-  seconds: number,
-  startHz: number,
-  peakHz: number,
-  endHz: number,
-) {
-  const length = Math.max(1, Math.floor(ctx.sampleRate * seconds));
-  const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
-  const data = buffer.getChannelData(0);
-  let phase = 0;
-  for (let i = 0; i < length; i += 1) {
-    const t = i / length;
-    const hz =
-      t < 0.22
-        ? startHz + (peakHz - startHz) * (t / 0.22)
-        : peakHz * Math.pow(endHz / peakHz, (t - 0.22) / 0.78);
-    phase += hz / ctx.sampleRate;
-    const cycle = phase % 1;
-    const pulse = cycle < 0.14 ? Math.exp(-cycle * 26) : 0;
-    const body = Math.sin(phase * 2 * Math.PI) * 0.22;
-    const air = (Math.random() * 2 - 1) * 0.08 * (1 - t);
-    const env = Math.pow(1 - t, 0.32);
-    data[i] = (pulse * 2.1 + body + air) * env;
-  }
-  return buffer;
-}
-
 type PlayOpts = {
   level?: number;
   exaggerate?: boolean;
@@ -71,6 +25,7 @@ export class GameAudio {
   private muted = false;
   private voiceTimer: number | null = null;
   private announceToken = 0;
+  private sampleCache = new Map<string, HTMLAudioElement>();
 
   get audioContext() {
     if (this.ctx) return this.ctx;
@@ -90,6 +45,7 @@ export class GameAudio {
     }
     if (typeof window !== "undefined") {
       window.speechSynthesis.getVoices();
+      this.preloadSamples();
     }
   }
 
@@ -122,6 +78,39 @@ export class GameAudio {
       throw new Error("Audio is not ready");
     }
     return master;
+  }
+
+  private preloadSamples() {
+    for (const src of [
+      "/sounds/fart-1.mp3",
+      "/sounds/fart-2.mp3",
+      "/sounds/fart-3.mp3",
+      "/sounds/fart-wet.mp3",
+      "/sounds/burp-1.mp3",
+    ]) {
+      const audio = new Audio(src);
+      audio.preload = "auto";
+      this.sampleCache.set(src, audio);
+    }
+  }
+
+  private playSample(
+    src: string,
+    opts: { rate?: number; volume?: number; delayMs?: number } = {},
+  ) {
+    const cached = this.sampleCache.get(src) ?? new Audio(src);
+    this.sampleCache.set(src, cached);
+    const node = cached.cloneNode(true) as HTMLAudioElement;
+    node.playbackRate = opts.rate ?? 1;
+    node.volume = Math.min(1, opts.volume ?? 1);
+    const start = () => {
+      void node.play().catch(() => {});
+    };
+    if (opts.delayMs) {
+      window.setTimeout(start, opts.delayMs);
+    } else {
+      start();
+    }
   }
 
   playAction(id: ActionId, opts: PlayOpts = {}) {
@@ -338,79 +327,39 @@ export class GameAudio {
   }
 
   private playFart(level: number, exaggerate: boolean) {
-    const ctx = this.audioContext;
-    const t = ctx.currentTime;
     const style = Math.min(5, Math.max(0, Math.floor(level)));
-    const stretch = exaggerate ? 2.4 : 1;
-    const loud = exaggerate ? 1.45 : 1;
-    const seconds = (0.42 + style * 0.28) * stretch;
-    const flutter = [11, 14, 22, 9, 18, 7][style];
-    const startHz = [260, 220, 300, 180, 340, 150][style];
-    const endHz = [70, 58, 90, 42, 64, 34][style];
-
-    const src = ctx.createBufferSource();
-    src.buffer = fartBuffer(ctx, seconds, flutter);
-    const filter = ctx.createBiquadFilter();
-    filter.type = "lowpass";
-    filter.Q.value = 2.6 + style * 0.35;
-    filter.frequency.setValueAtTime(startHz, t);
-    if (style === 4) {
-      filter.frequency.exponentialRampToValueAtTime(380, t + seconds * 0.35);
-      filter.frequency.exponentialRampToValueAtTime(endHz, t + seconds);
-    } else {
-      filter.frequency.exponentialRampToValueAtTime(endHz, t + seconds);
-    }
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.95 * loud, t + 0.03);
-    if (style >= 2) {
-      gain.gain.exponentialRampToValueAtTime(0.4 * loud, t + seconds * 0.45);
-      gain.gain.exponentialRampToValueAtTime(0.9 * loud, t + seconds * 0.55);
-    }
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + seconds);
-    src.connect(filter).connect(gain).connect(this.dest());
-    src.start(t);
-    src.stop(t + seconds + 0.02);
-
-    if (style >= 3 || exaggerate) {
-      this.sputter(t + seconds * 0.58, 0.18 * stretch, loud);
+    const farts = [
+      "/sounds/fart-1.mp3",
+      "/sounds/fart-2.mp3",
+      "/sounds/fart-3.mp3",
+      "/sounds/fart-wet.mp3",
+    ];
+    const first = farts[style % farts.length];
+    const second = farts[(style + 1) % farts.length];
+    this.playSample(first, {
+      rate: exaggerate ? 0.84 : 1,
+      volume: 1,
+    });
+    if (exaggerate || style >= 4) {
+      this.playSample(second, {
+        delayMs: exaggerate ? 520 : 430,
+        rate: 0.92,
+      });
     }
   }
 
   private playBurp(level: number, exaggerate: boolean) {
-    const ctx = this.audioContext;
-    const t = ctx.currentTime;
     const style = Math.min(5, Math.max(0, Math.floor(level)));
-    const stretch = exaggerate ? 2.15 : 1;
-    const loud = exaggerate ? 1.4 : 1;
-    const hits = style >= 3 ? 2 : 1;
-    const hitLen = (0.38 + style * 0.12) * stretch;
-    const starts = [108, 96, 118, 88, 78, 132];
-    const peaks = [148, 130, 170, 120, 108, 188];
-    const ends = [48, 42, 52, 38, 34, 44];
-
-    for (let hit = 0; hit < hits; hit += 1) {
-      const at = t + hit * (hitLen * 0.7);
-      const src = ctx.createBufferSource();
-      src.buffer = burpBuffer(
-        ctx,
-        hitLen,
-        starts[style] * (hit === 1 ? 0.86 : 1),
-        peaks[style] * (hit === 1 ? 0.84 : 1),
-        ends[style],
-      );
-      const filter = ctx.createBiquadFilter();
-      filter.type = "lowpass";
-      filter.frequency.setValueAtTime(720, at);
-      filter.frequency.exponentialRampToValueAtTime(180, at + hitLen);
-      filter.Q.value = 1.1;
-      const gain = ctx.createGain();
-      gain.gain.setValueAtTime(0.0001, at);
-      gain.gain.exponentialRampToValueAtTime(0.85 * loud, at + 0.025);
-      gain.gain.exponentialRampToValueAtTime(0.0001, at + hitLen);
-      src.connect(filter).connect(gain).connect(this.dest());
-      src.start(at);
-      src.stop(at + hitLen + 0.02);
+    const rates = [1, 0.94, 1.08, 0.86, 0.78, 1.14];
+    this.playSample("/sounds/burp-1.mp3", {
+      rate: rates[style],
+      volume: 1,
+    });
+    if (exaggerate || style >= 3) {
+      this.playSample("/sounds/burp-1.mp3", {
+        delayMs: exaggerate ? 420 : 300,
+        rate: 0.82,
+      });
     }
   }
 
@@ -466,21 +415,5 @@ export class GameAudio {
     src.start(chooAt);
     boom.start(chooAt);
     boom.stop(chooAt + 0.32 * stretch);
-  }
-
-  private sputter(start: number, length: number, loud: number) {
-    const ctx = this.audioContext;
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuffer(ctx, length);
-    const filter = ctx.createBiquadFilter();
-    filter.type = "bandpass";
-    filter.frequency.setValueAtTime(180, start);
-    filter.frequency.exponentialRampToValueAtTime(70, start + length);
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0.35 * loud, start);
-    gain.gain.exponentialRampToValueAtTime(0.0001, start + length);
-    src.connect(filter).connect(gain).connect(this.dest());
-    src.start(start);
-    src.stop(start + length + 0.02);
   }
 }
