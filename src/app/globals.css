@@ -300,6 +300,8 @@ input {
   z-index: 3;
   width: min(32%, 168px);
   aspect-ratio: 1;
+  left: var(--px);
+  top: var(--py);
   border: 0;
   padding: 0.35rem;
   border-radius: 50%;
@@ -309,10 +311,14 @@ input {
   place-items: center;
   align-content: center;
   gap: 0;
+  transform: translate(-50%, -50%);
   box-shadow:
     0 8px 0 #24063a,
     inset 0 8px 0 #ffffff55;
-  transition: transform 80ms ease;
+  transition:
+    transform 80ms ease,
+    left 520ms cubic-bezier(0.22, 1.15, 0.36, 1),
+    top 520ms cubic-bezier(0.22, 1.15, 0.36, 1);
 }
 
 .pad img {
@@ -345,10 +351,27 @@ input {
   pointer-events: none;
 }
 
-.pad-top {
-  left: 50%;
-  top: 0;
-  transform: translateX(-50%);
+.slot-top {
+  --px: 50%;
+  --py: 13.5%;
+}
+
+.slot-right {
+  --px: 86.5%;
+  --py: 50%;
+}
+
+.slot-bottom {
+  --px: 50%;
+  --py: 86.5%;
+}
+
+.slot-left {
+  --px: 13.5%;
+  --py: 50%;
+}
+
+.pad-fart {
   background: radial-gradient(
     circle at 35% 30%,
     #e8ff8a,
@@ -357,10 +380,7 @@ input {
   );
 }
 
-.pad-right {
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
+.pad-vomit {
   background: radial-gradient(
     circle at 35% 30%,
     #ff9ec8,
@@ -369,10 +389,7 @@ input {
   );
 }
 
-.pad-bottom {
-  left: 50%;
-  bottom: 0;
-  transform: translateX(-50%);
+.pad-sneeze {
   background: radial-gradient(
     circle at 35% 30%,
     #b4f7ff,
@@ -381,10 +398,7 @@ input {
   );
 }
 
-.pad-left {
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
+.pad-burp {
   background: radial-gradient(
     circle at 35% 30%,
     #ffc08a,
@@ -402,17 +416,8 @@ input {
   outline-offset: 4px;
 }
 
-.pad.smashed.pad-top,
-.pad.smashed.pad-bottom {
-  transform: translateX(-50%) translateY(5px) scale(0.96);
-}
-
-.pad.smashed.pad-left {
-  transform: translateY(-50%) translateY(5px) scale(0.96);
-}
-
-.pad.smashed.pad-right {
-  transform: translateY(-50%) translateY(5px) scale(0.96);
+.pad.smashed {
+  transform: translate(-50%, calc(-50% + 5px)) scale(0.96);
 }
 
 .pad.called {
@@ -584,5 +589,9 @@ input {
   .timer,
   .pad.called {
     animation: none;
+  }
+
+  .pad {
+    transition: transform 80ms ease;
   }
 }

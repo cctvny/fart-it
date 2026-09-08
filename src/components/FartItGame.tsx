@@ -11,13 +11,19 @@ import Image from "next/image";
 import {
   ACTIONS,
   ACTION_MAP,
+  DEFAULT_LAYOUT,
   PRESS_WINDOW_MS,
+  SLOT_HINT,
+  SLOT_KEYS,
   SPEED_EVERY,
+  actionAtSlot,
   beatIntervalMs,
   beatLabel,
   musicLevel,
   nextAction,
+  shufflePadLayout,
   type ActionId,
+  type PadLayout,
 } from "@/lib/actions";
 import { GameAudio, noiseLevel } from "@/lib/audio";
 import {
@@ -50,6 +56,7 @@ export default function FartItGame() {
   const [saved, setSaved] = useState(false);
   const [beatOn, setBeatOn] = useState(false);
   const [armed, setArmed] = useState(false);
+  const [layout, setLayout] = useState<PadLayout>(DEFAULT_LAYOUT);
 
   const audioRef = useRef<GameAudio | null>(null);
   const acceptingRef = useRef(false);
@@ -57,6 +64,7 @@ export default function FartItGame() {
   const scoreRef = useRef(0);
   const streakRef = useRef(0);
   const phaseRef = useRef<Phase>("title");
+  const layoutRef = useRef<PadLayout>(DEFAULT_LAYOUT);
   const roundTimer = useRef<number | null>(null);
   const pressTimer = useRef<number | null>(null);
 
@@ -75,6 +83,10 @@ export default function FartItGame() {
   useEffect(() => {
     phaseRef.current = phase;
   }, [phase]);
+
+  useEffect(() => {
+    layoutRef.current = layout;
+  }, [layout]);
 
   useEffect(() => {
     audio().setMuted(muted);
@@ -144,6 +156,8 @@ export default function FartItGame() {
     setSaved(false);
     setFlash(null);
     setBeatMs(beatIntervalMs(0));
+    setLayout(DEFAULT_LAYOUT);
+    layoutRef.current = DEFAULT_LAYOUT;
     setBeatOn(true);
     setPhase("playing");
     phaseRef.current = "playing";
@@ -208,6 +222,9 @@ export default function FartItGame() {
         setBeatMs(beatIntervalMs(nextScore));
         audio().setMusicTempo(beatIntervalMs(nextScore));
         audio().playFaster();
+        const nextLayout = shufflePadLayout(layoutRef.current);
+        layoutRef.current = nextLayout;
+        setLayout(nextLayout);
       }
 
       window.setTimeout(
@@ -234,20 +251,10 @@ export default function FartItGame() {
         }
         return;
       }
-      const map: Record<string, ActionId> = {
-        w: "fart",
-        arrowup: "fart",
-        d: "vomit",
-        arrowright: "vomit",
-        s: "sneeze",
-        arrowdown: "sneeze",
-        a: "burp",
-        arrowleft: "burp",
-      };
-      const action = map[key];
-      if (action) {
+      const slot = SLOT_KEYS[key];
+      if (slot) {
         event.preventDefault();
-        void handlePad(action);
+        void handlePad(actionAtSlot(layoutRef.current, slot));
       }
     };
     window.addEventListener("keydown", onKey);
@@ -338,13 +345,13 @@ export default function FartItGame() {
           <button
             key={action.id}
             type="button"
-            className={`pad pad-${action.position} ${pressed === action.id ? "smashed" : ""} ${current === action.id && phase === "playing" ? "called" : ""}`}
+            className={`pad pad-${action.id} slot-${layout[action.id]} ${pressed === action.id ? "smashed" : ""} ${current === action.id && phase === "playing" ? "called" : ""}`}
             onClick={() => void handlePad(action.id)}
             aria-label={action.label}
           >
             <Image src={action.icon} alt="" width={160} height={160} />
             <b>{action.label}</b>
-            <small>{action.hint}</small>
+            <small>{SLOT_HINT[layout[action.id]]}</small>
           </button>
         ))}
       </div>
@@ -354,8 +361,8 @@ export default function FartItGame() {
           <>
             <p className="how">
               The hub shouts a move. After you hear it, you always have 2
-              seconds. Every 10 hits the music gets faster. The time to press
-              stays the same.
+              seconds. Every 10 hits the music gets faster and the pads swap
+              places. The time to press stays the same.
             </p>
             <button
               type="button"
@@ -369,7 +376,7 @@ export default function FartItGame() {
         {phase === "playing" && (
           <p className="how live">
             {streak > 0 && streak % SPEED_EVERY === 0
-              ? "Faster music!"
+              ? "Faster music! Pads swapped!"
               : "Wait for the shout, then match the hub."}
           </p>
         )}

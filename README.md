@@ -7,7 +7,7 @@ A family noise toy in the spirit of Bop It. Match the hub, smash the pad, and ke
 - **Vomit It** — vomit pad, vomit sound
 - **Sneeze It** — sneeze pad, sneeze sound
 
-You always have 2 seconds after the shout. Background music starts with Play and keeps going through shouts. Every 10 hits the music gets faster. High scores stay on this device. Continue keeps your points.
+You always have 2 seconds after the shout. Background music starts with Play and keeps going through shouts. Every 10 hits the music gets faster and the pads swap places. High scores stay on this device. Continue keeps your points.
 
 ```bash
 pnpm dev
